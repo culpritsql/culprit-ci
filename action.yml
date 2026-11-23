@@ -1,0 +1,191 @@
+name: "Culprit SQL CI"
+description: "Lint SQL migrations and queries, gate execution plans, emit SARIF 2.1.0, and post interactive Plan Diff PR comments."
+author: "Cristian Pufu"
+
+branding:
+  icon: "database"
+  color: "yellow"
+
+inputs:
+  sql:
+    description: "SQL migration file paths or globs (for example 'migrations/*.sql')."
+    required: false
+    default: ""
+  queries:
+    description: "Application SQL query file paths or globs (for example 'src/**/*.sql')."
+    required: false
+    default: ""
+  schema:
+    description: "Optional SQL schema snapshot file for foreign-key index resolution."
+    required: false
+    default: ""
+  engine:
+    description: "SQL engine dialect: auto, postgres, mssql, mysql, sqlite, or yugabyte."
+    required: false
+    default: "auto"
+  plan:
+    description: "Optional single execution plan file (.json, .txt, .sqlplan) to analyze."
+    required: false
+    default: ""
+  before-plan:
+    description: "Baseline execution plan file for structural Before/After comparison."
+    required: false
+    default: ""
+  after-plan:
+    description: "Candidate execution plan file for structural Before/After comparison."
+    required: false
+    default: ""
+  fail-on:
+    description: "Minimum finding severity that fails the CI gate: high, medium, low, or none."
+    required: false
+    default: "high"
+  sarif-file:
+    description: "Output path for SARIF 2.1.0 report (empty string disables SARIF file output)."
+    required: false
+    default: "culprit.sarif"
+  markdown-file:
+    description: "Output path for GitHub PR Markdown report."
+    required: false
+    default: "culprit-comment.md"
+  post-comment:
+    description: "Upsert a sticky PR comment with findings and Culprit Explain diff link on pull_request."
+    required: false
+    default: "true"
+  github-token:
+    description: "GitHub token used to upsert the sticky PR comment."
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  passed:
+    description: "Whether the Culprit CI gate passed ('true' or 'false')."
+    value: ${{ steps.gate.outputs.passed }}
+  exit-code:
+    description: "Exit code returned by culprit-ci (0 pass, 1 gate failed, 2 invalid input)."
+    value: ${{ steps.gate.outputs.exit_code }}
+  sarif-file:
+    description: "Path to the generated SARIF 2.1.0 report."
+    value: ${{ steps.gate.outputs.sarif_file }}
+  markdown-file:
+    description: "Path to the generated Markdown report."
+    value: ${{ steps.gate.outputs.markdown_file }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+
+    - name: Run Culprit SQL CI
+      id: gate
+      shell: bash
+      env:
+        INPUT_SQL: ${{ inputs.sql }}
+        INPUT_QUERIES: ${{ inputs.queries }}
+        INPUT_SCHEMA: ${{ inputs.schema }}
+        INPUT_ENGINE: ${{ inputs.engine }}
+        INPUT_PLAN: ${{ inputs.plan }}
+        INPUT_BEFORE_PLAN: ${{ inputs.before-plan }}
+        INPUT_AFTER_PLAN: ${{ inputs.after-plan }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_SARIF_FILE: ${{ inputs.sarif-file }}
+        INPUT_MARKDOWN_FILE: ${{ inputs.markdown-file }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set +e
+        ARGS=(--engine "$INPUT_ENGINE" --fail-on "$INPUT_FAIL_ON")
+
+        if [ -n "$INPUT_SQL" ]; then
+          ARGS+=(--sql "$INPUT_SQL")
+        fi
+        if [ -n "$INPUT_QUERIES" ]; then
+          ARGS+=(--queries "$INPUT_QUERIES")
+        fi
+        if [ -n "$INPUT_SCHEMA" ]; then
+          ARGS+=(--schema "$INPUT_SCHEMA")
+        fi
+        if [ -n "$INPUT_PLAN" ]; then
+          ARGS+=(--plan "$INPUT_PLAN")
+        fi
+        if [ -n "$INPUT_BEFORE_PLAN" ] || [ -n "$INPUT_AFTER_PLAN" ]; then
+          ARGS+=(--before-plan "$INPUT_BEFORE_PLAN" --after-plan "$INPUT_AFTER_PLAN")
+        fi
+        if [ -n "$INPUT_SARIF_FILE" ]; then
+          ARGS+=(--sarif "$INPUT_SARIF_FILE")
+        fi
+        if [ -n "$INPUT_MARKDOWN_FILE" ]; then
+          ARGS+=(--markdown-out "$INPUT_MARKDOWN_FILE")
+        fi
+
+        if [ -f "$ACTION_PATH/dist/cli.js" ] && [ -d "$ACTION_PATH/node_modules/@culpritsql/plans" ]; then
+          node "$ACTION_PATH/dist/cli.js" "${ARGS[@]}"
+          EXIT_CODE=$?
+        elif [ -f "$ACTION_PATH/package.json" ]; then
+          if [ ! -f "$ACTION_PATH/dist/cli.js" ] || [ ! -d "$ACTION_PATH/node_modules/@culpritsql/plans" ]; then
+            npm --prefix "$ACTION_PATH" install --no-audit --no-fund >/dev/null 2>&1 && npm --prefix "$ACTION_PATH" run build >/dev/null 2>&1
+          fi
+          if [ -f "$ACTION_PATH/dist/cli.js" ]; then
+            node "$ACTION_PATH/dist/cli.js" "${ARGS[@]}"
+            EXIT_CODE=$?
+          else
+            npx --yes "@culpritsql/ci@0.5.6" "${ARGS[@]}"
+            EXIT_CODE=$?
+          fi
+        else
+          npx --yes "@culpritsql/ci@0.5.6" "${ARGS[@]}"
+          EXIT_CODE=$?
+        fi
+
+        if [ -n "$INPUT_MARKDOWN_FILE" ] && [ -f "$INPUT_MARKDOWN_FILE" ]; then
+          cat "$INPUT_MARKDOWN_FILE" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+        echo "sarif_file=$INPUT_SARIF_FILE" >> "$GITHUB_OUTPUT"
+        echo "markdown_file=$INPUT_MARKDOWN_FILE" >> "$GITHUB_OUTPUT"
+        if [ "$EXIT_CODE" -eq 0 ]; then
+          echo "passed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "passed=false" >> "$GITHUB_OUTPUT"
+        fi
+        exit 0
+
+    - name: Upsert Sticky Pull Request Comment
+      if: ${{ inputs.post-comment == 'true' && github.event_name == 'pull_request' && inputs.markdown-file != '' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        COMMENT_FILE: ${{ inputs.markdown-file }}
+      run: |
+        if [ ! -f "$COMMENT_FILE" ]; then
+          exit 0
+        fi
+        MARKER="<!-- culprit-ci-report -->"
+        PAYLOAD_FILE="$(mktemp)"
+        node -e '
+          const fs = require("node:fs");
+          const body = fs.readFileSync(process.env.COMMENT_FILE, "utf8");
+          fs.writeFileSync(process.argv[1], JSON.stringify({ body }));
+        ' "$PAYLOAD_FILE"
+
+        EXISTING_ID="$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" \
+          --paginate \
+          --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" | head -n 1)"
+
+        if [ -n "$EXISTING_ID" ]; then
+          gh api --method PATCH "repos/${REPO}/issues/comments/${EXISTING_ID}" --input "$PAYLOAD_FILE" >/dev/null
+        else
+          gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" --input "$PAYLOAD_FILE" >/dev/null
+        fi
+        rm -f "$PAYLOAD_FILE"
+
+    - name: Enforce Culprit CI Gate Status
+      shell: bash
+      env:
+        GATE_EXIT_CODE: ${{ steps.gate.outputs.exit_code }}
+      run: |
+        exit "${GATE_EXIT_CODE:-1}"
