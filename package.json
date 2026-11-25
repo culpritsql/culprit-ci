@@ -1,6 +1,6 @@
 {
   "name": "@culpritsql/ci",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "description": "SQL migration linter, query anti-pattern analyzer, execution plan regression gate, SARIF 2.1.0 emitter, and PR diff commenter powered by @culpritsql/plans WebAssembly.",
   "license": "MIT",
   "type": "module",
@@ -34,7 +34,7 @@
     "node": ">=20.6.0"
   },
   "dependencies": {
-    "@culpritsql/plans": "^0.5.10"
+    "@culpritsql/plans": "^0.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",
