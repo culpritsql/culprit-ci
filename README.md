@@ -9,7 +9,7 @@
 <br />
 
 [![npm version](https://img.shields.io/npm/v/@culpritsql/ci?style=flat-square&color=ffcf33&labelColor=181715)](https://www.npmjs.com/package/@culpritsql/ci)
-[![GitHub Action](https://img.shields.io/badge/GitHub_Action-v0.5.6-4cbb84?style=flat-square&labelColor=181715)](https://github.com/culpritsql/culprit-ci)
+[![GitHub Action](https://img.shields.io/github/v/release/culpritsql/culprit-ci?style=flat-square&label=GitHub%20Action&color=4cbb84&labelColor=181715)](https://github.com/culpritsql/culprit-ci/releases/latest)
 [![SARIF 2.1.0](https://img.shields.io/badge/SARIF-2.1.0-6cb6ff?style=flat-square&labelColor=181715)](https://docs.github.com/en/code-security/code-scanning/integrating-with-code-scanning/sarif-support-for-code-scanning)
 [![Wasm Engine](https://img.shields.io/badge/Wasm-@culpritsql/plans-ffcf33?style=flat-square&labelColor=181715)](https://www.npmjs.com/package/@culpritsql/plans)
 [![License: MIT](https://img.shields.io/badge/License-MIT-9e9b94?style=flat-square&labelColor=181715)](./LICENSE)
@@ -59,7 +59,7 @@ jobs:
 
       - name: Run Culprit SQL CI
         id: sql-gate
-        uses: culpritsql/culprit-ci@v0.5.6
+        uses: culpritsql/culprit-ci@v0.5.11
         continue-on-error: true
         with:
           sql: "migrations/*.sql"
@@ -194,7 +194,7 @@ TRUNCATE TABLE staging_import; -- culprit-ignore: MIG005, MIG006
       "tool": {
         "driver": {
           "name": "Culprit CI",
-          "version": "0.5.6",
+          "version": "0.5.11",
           "rules": [{ "id": "MIG001", "defaultConfiguration": { "level": "error" } }]
         }
       },
